@@ -64,17 +64,26 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import org.junit.runner.RunWith;
 import org.jvnet.hudson.test.Issue;
 import org.mockito.Mockito;
+import org.powermock.api.mockito.PowerMockito;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.modules.junit4.PowerMockRunner;
+
 import static org.mockito.Mockito.*;
 
 /**
  * @author Kohsuke Kawaguchi
  */
+@PrepareForTest(ProxyConfiguration.class)
+@RunWith(PowerMockRunner.class)
 public class FilePathTest {
 
     @Rule public ChannelRule channels = new ChannelRule();
     @Rule public TemporaryFolder temp = new TemporaryFolder();
+
+
 
     @Test public void copyTo() throws Exception {
         File tmp = temp.newFile();
@@ -647,7 +656,16 @@ public class FilePathTest {
 
         return new URL("http", "some-host", 0, "/some-path.zip", urlHandler);
     }
+    private URL someUrlToZipFile2(final URLConnection con) throws IOException {
 
+        final URLStreamHandler urlHandler = new URLStreamHandler() {
+            @Override protected URLConnection openConnection(URL u) throws IOException {
+                return con;
+            }
+        };
+
+        return new URL("http", "some-host2", 0, "/some-path2.zip", urlHandler);
+    }
     private InputStream someZippedContent() throws IOException {
         final ByteArrayOutputStream buf = new ByteArrayOutputStream();
         final ZipOutputStream zip = new ZipOutputStream(buf);
@@ -658,6 +676,38 @@ public class FilePathTest {
 
         return new ByteArrayInputStream(buf.toByteArray());
     }
+
+
+    @Issue("JENKINS-23507")
+    @Test public void installIfNecessaryNotFollowHTTP30X() throws Exception {
+
+        File tmp = temp.getRoot();
+        final FilePath d = new FilePath(tmp);
+
+        final HttpURLConnection con = mock(HttpURLConnection.class);
+         URL url = someUrlToZipFile(con);
+
+        final HttpURLConnection con2 = mock(HttpURLConnection.class);
+         URL url2 = someUrlToZipFile2(con2);
+
+        when(con2.getResponseCode())
+                .thenReturn(HttpURLConnection.HTTP_OK);
+
+        when(con2.getInputStream())
+                .thenReturn(someZippedContent()) ;
+
+        PowerMockito.whenNew(URL.class).withAnyArguments().thenReturn(url2);
+        when(con.getResponseCode())
+                .thenReturn(HttpURLConnection.HTTP_MOVED_TEMP);
+        when(con.getHeaderField("Location")).thenReturn(url2.toString());
+
+        when(con.getInputStream())
+                .thenReturn(new ByteArrayInputStream("MOVE TEMP".getBytes()));
+
+        assertTrue(d.installIfNecessaryFrom(url, null, null));
+    }
+
+
 
     @Issue("JENKINS-16846")
     @Test public void moveAllChildrenTo() throws IOException, InterruptedException {

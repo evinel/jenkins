@@ -218,27 +218,39 @@ public final class ProxyConfiguration extends AbstractDescribableImpl<ProxyConfi
      */
     public static URLConnection open(URL url) throws IOException {
         final ProxyConfiguration p = get();
-        if(p==null)
-            return url.openConnection();
+        URLConnection con;
+        if (p == null) {
+            con = url.openConnection();
+        } else {
+            con = url.openConnection(p.createProxy(url.getHost()));
 
-        URLConnection con = url.openConnection(p.createProxy(url.getHost()));
-        if(p.getUserName()!=null) {
-            // Add an authenticator which provides the credentials for proxy authentication
-            Authenticator.setDefault(new Authenticator() {
-                @Override
-                public PasswordAuthentication getPasswordAuthentication() {
-                    if (getRequestorType()!=RequestorType.PROXY)    return null;
-                    return new PasswordAuthentication(p.getUserName(),
-                            p.getPassword().toCharArray());
-                }
-            });
+            if (p.getUserName() != null) {
+                // Add an authenticator which provides the credentials for proxy authentication
+                Authenticator.setDefault(new Authenticator() {
+                    @Override
+                    public PasswordAuthentication getPasswordAuthentication() {
+                        if (getRequestorType() != RequestorType.PROXY)
+                            return null;
+                        return new PasswordAuthentication(p.getUserName(), p.getPassword().toCharArray());
+                    }
+                });
+            }
+
+            if (JenkinsJVM.isJenkinsJVM()) { // this code may run on a slave
+                decorate(con);
+            }
         }
 
-        if (JenkinsJVM.isJenkinsJVM()) { // this code may run on a slave
-            decorate(con);
+        int status = ((HttpURLConnection) con).getResponseCode();
+        if (status == HttpURLConnection.HTTP_MOVED_TEMP || status == HttpURLConnection.HTTP_MOVED_PERM
+                || status == HttpURLConnection.HTTP_SEE_OTHER) {
+            // Close the old connection and..
+            ((HttpURLConnection) con).disconnect();
+            // Get the new location from the header to return a new connection.
+            // This is recursif to handle many 30X
+            return open(new URL(con.getHeaderField("Location")));
         }
-
-        return con;
+      return con;
     }
 
     public static InputStream getInputStream(URL url) throws IOException {
