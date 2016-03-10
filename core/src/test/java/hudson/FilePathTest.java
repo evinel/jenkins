@@ -76,7 +76,7 @@ import static org.mockito.Mockito.*;
 /**
  * @author Kohsuke Kawaguchi
  */
-@PrepareForTest(ProxyConfiguration.class)
+@PrepareForTest({ProxyConfiguration.class})
 @RunWith(PowerMockRunner.class)
 public class FilePathTest {
 
@@ -627,6 +627,41 @@ public class FilePathTest {
             assertTrue(d.installIfNecessaryFrom(url, null, null));
     }
 
+
+    @Issue("JENKINS-23507")
+    @Test public void installIfNecessaryNotFollowHTTP30X() throws Exception {
+
+        File tmp = temp.getRoot();
+        final FilePath d = new FilePath(tmp);
+
+        final HttpURLConnection con = mock(HttpURLConnection.class);
+        URL url = someUrlToZipFile(con);
+
+        when(con.getResponseCode())
+                .thenReturn(HttpURLConnection.HTTP_MOVED_TEMP);
+
+        when(con.getInputStream())
+                .thenReturn(new ByteArrayInputStream("MOVE TEMP".getBytes()));
+
+
+        final HttpURLConnection con2 = mock(HttpURLConnection.class);
+        URL url2 = someUrlToZipFile2(con2);
+        when(con.getHeaderField("Location")).thenReturn(url2.toString());
+
+        PowerMockito.whenNew(URL.class).withAnyArguments().thenReturn(url2);
+
+        when(con2.getResponseCode())
+                .thenReturn(HttpURLConnection.HTTP_OK);
+
+        when(con2.getInputStream())
+                .thenReturn(someZippedContent()) ;
+
+
+        assertTrue(d.installIfNecessaryFrom(url, null, null));
+    }
+
+
+
     @Issue("JENKINS-26196")
     @Test public void installIfNecessarySkipsDownloadWhenErroneous() throws Exception {
         File tmp = temp.getRoot();
@@ -664,7 +699,7 @@ public class FilePathTest {
             }
         };
 
-        return new URL("http", "some-host2", 0, "/some-path2.zip", urlHandler);
+        return new URL("http", "some-host2", 2, "/some-path2.zip", urlHandler);
     }
     private InputStream someZippedContent() throws IOException {
         final ByteArrayOutputStream buf = new ByteArrayOutputStream();
@@ -675,36 +710,6 @@ public class FilePathTest {
         zip.close();
 
         return new ByteArrayInputStream(buf.toByteArray());
-    }
-
-
-    @Issue("JENKINS-23507")
-    @Test public void installIfNecessaryNotFollowHTTP30X() throws Exception {
-
-        File tmp = temp.getRoot();
-        final FilePath d = new FilePath(tmp);
-
-        final HttpURLConnection con = mock(HttpURLConnection.class);
-         URL url = someUrlToZipFile(con);
-
-        final HttpURLConnection con2 = mock(HttpURLConnection.class);
-         URL url2 = someUrlToZipFile2(con2);
-
-        when(con2.getResponseCode())
-                .thenReturn(HttpURLConnection.HTTP_OK);
-
-        when(con2.getInputStream())
-                .thenReturn(someZippedContent()) ;
-
-        PowerMockito.whenNew(URL.class).withAnyArguments().thenReturn(url2);
-        when(con.getResponseCode())
-                .thenReturn(HttpURLConnection.HTTP_MOVED_TEMP);
-        when(con.getHeaderField("Location")).thenReturn(url2.toString());
-
-        when(con.getInputStream())
-                .thenReturn(new ByteArrayInputStream("MOVE TEMP".getBytes()));
-
-        assertTrue(d.installIfNecessaryFrom(url, null, null));
     }
 
 
